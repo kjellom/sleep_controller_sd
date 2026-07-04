@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sleep controller — reference Rev 7</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 2rem; color: #1a1a1a; background: #fff; }
+  h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.1rem; font-weight: 600; margin: 2rem 0 0.75rem; border-bottom: 1px solid #e0e0e0; padding-bottom: 0.4rem; }
+  p.sub { color: #666; font-size: 0.9rem; margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 1.5rem; }
+  th { background: #f4f4f4; text-align: left; padding: 7px 10px; font-weight: 600; border-bottom: 2px solid #ddd; }
+  td { padding: 6px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .warn { color: #b45000; font-weight: 600; }
+  .avail { color: #2a7a2a; }
+  .done { color: #2a7a2a; font-weight: 600; }
+  .note { background: #fffbe6; border-left: 3px solid #e6b800; padding: 0.6rem 1rem; font-size: 0.88rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+  .learned { background: #f0f7ff; border-left: 3px solid #4488cc; padding: 0.6rem 1rem; font-size: 0.88rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1a; color: #e0e0e0; }
+    th { background: #2a2a2a; }
+    td { border-bottom-color: #333; }
+    h2 { border-bottom-color: #333; }
+    .note { background: #2a2500; border-left-color: #997700; }
+    .learned { background: #0d1f33; border-left-color: #4488cc; }
+    .warn { color: #ffaa44; }
+    .avail { color: #66cc66; }
+    .done { color: #66cc66; }
+    code { background: #2a2a2a; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Sleep controller — hardware reference</h1>
+<p class="sub">Rev 7 — ESP32 · PCM5102 · dual TDA2050 · fans IO32/IO27 · mister IO33 · DHT22 IO23 · SSD1306</p>
+
+<h2>Block diagram</h2>
+
+<svg width="100%" viewBox="0 0 860 780" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#666" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrb" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .box { fill: #f8f8f8; stroke: #bbb; stroke-width: 1; }
+    .box-blue { fill: #e8f0fb; stroke: #5580cc; }
+    .box-amber { fill: #fff3e0; stroke: #cc8800; }
+    .box-teal { fill: #e0f4ee; stroke: #2a8a66; }
+    .box-coral { fill: #fdeee8; stroke: #cc5533; }
+    .box-purple { fill: #eeeafc; stroke: #6655bb; }
+    .box-green { fill: #eaf4e0; stroke: #448833; }
+    .box-gray { fill: #f2f2f2; stroke: #999; }
+    .lbl { font-size: 13px; font-weight: 600; font-family: system-ui, sans-serif; }
+    .sub { font-size: 11px; fill: #666; font-family: system-ui, sans-serif; }
+    .rail { stroke: #aaa; stroke-width: 1.5; stroke-dasharray: 6 3; fill: none; }
+    .sig { stroke: #666; stroke-width: 1.5; fill: none; }
+    .railLabel { font-size: 11px; fill: #999; font-family: system-ui, sans-serif; }
+    @media (prefers-color-scheme: dark) {
+      .box { fill: #222; stroke: #555; }
+      .box-blue { fill: #1a2540; stroke: #5580cc; }
+      .box-amber { fill: #2a1e00; stroke: #cc8800; }
+      .box-teal { fill: #0d2820; stroke: #2a8a66; }
+      .box-coral { fill: #2a1008; stroke: #cc5533; }
+      .box-purple { fill: #1a1530; stroke: #6655bb; }
+      .box-green { fill: #0e2008; stroke: #448833; }
+      .box-gray { fill: #252525; stroke: #555; }
+      .lbl { fill: #e0e0e0; }
+      .sub { fill: #999; }
+      .rail { stroke: #555; }
+      .sig { stroke: #999; }
+      .railLabel { fill: #666; }
+    }
+  </style>
+
+  <!-- 12V PSU -->
+  <rect x="40" y="30" width="120" height="52" rx="8" class="box box-amber"/>
+  <text x="100" y="52" text-anchor="middle" class="lbl">12V PSU</text>
+  <text x="100" y="70" text-anchor="middle" class="sub">barrel jack</text>
+
+  <!-- 24V PSU -->
+  <rect x="700" y="30" width="120" height="52" rx="8" class="box box-amber"/>
+  <text x="760" y="52" text-anchor="middle" class="lbl">24V PSU</text>
+  <text x="760" y="70" text-anchor="middle" class="sub">barrel jack</text>
+
+  <!-- Rocker switch -->
+  <rect x="40" y="110" width="120" height="44" rx="8" class="box box-gray"/>
+  <text x="100" y="128" text-anchor="middle" class="lbl">Rocker switch</text>
+  <text x="100" y="144" text-anchor="middle" class="sub">12V main</text>
+  <line x1="100" y1="82" x2="100" y2="108" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 12V rail -->
+  <line x1="100" y1="154" x2="100" y2="180" stroke="#666" stroke-width="1.5"/>
+  <line x1="100" y1="180" x2="760" y2="180" class="rail"/>
+  <text x="420" y="175" text-anchor="middle" class="railLabel">12V rail</text>
+  <line x1="760" y1="82" x2="760" y2="180" stroke="#aaa" stroke-width="1.5" stroke-dasharray="6 3"/>
+
+  <!-- Buck 1 -->
+  <rect x="40" y="200" width="120" height="52" rx="8" class="box box-gray"/>
+  <text x="100" y="220" text-anchor="middle" class="lbl">Buck 1</text>
+  <text x="100" y="238" text-anchor="middle" class="sub">12V → 5V logic</text>
+  <line x1="100" y1="180" x2="100" y2="198" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Buck 2 -->
+  <rect x="200" y="200" width="120" height="52" rx="8" class="box box-gray"/>
+  <text x="260" y="220" text-anchor="middle" class="lbl">Buck 2</text>
+  <text x="260" y="238" text-anchor="middle" class="sub">12V → 5V audio</text>
+  <line x1="260" y1="180" x2="260" y2="198" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ESP32 -->
+  <rect x="320" y="300" width="220" height="110" rx="8" class="box box-blue"/>
+  <text x="430" y="328" text-anchor="middle" class="lbl">ESP32</text>
+  <text x="430" y="348" text-anchor="middle" class="sub">SunFounder ext. board</text>
+  <text x="430" y="366" text-anchor="middle" class="sub">SD_MMC · I2C · I2S</text>
+  <text x="430" y="384" text-anchor="middle" class="sub">LEDC PWM · 1-wire</text>
+
+  <!-- Buck1 → ESP32 -->
+  <path d="M100 252 L100 355 L318 355" class="sig" marker-end="url(#arr)"/>
+  <text x="185" y="348" class="sub">5V logic</text>
+
+  <!-- Buck2 line -->
+  <line x1="260" y1="252" x2="260" y2="290" stroke="#666" stroke-width="1.5"/>
+
+  <!-- OLED -->
+  <rect x="40" y="310" width="130" height="52" rx="8" class="box box-teal"/>
+  <text x="105" y="330" text-anchor="middle" class="lbl">OLED</text>
+  <text x="105" y="348" text-anchor="middle" class="sub">SSD1306 128×32</text>
+  <line x1="320" y1="335" x2="172" y2="335" class="sig" marker-end="url(#arr)"/>
+  <text x="242" y="328" text-anchor="middle" class="sub">I2C IO21/22</text>
+
+  <!-- Encoder -->
+  <rect x="40" y="390" width="130" height="52" rx="8" class="box box-teal"/>
+  <text x="105" y="410" text-anchor="middle" class="lbl">Encoder</text>
+  <text x="105" y="428" text-anchor="middle" class="sub">IO18 · IO19 · IO5</text>
+  <path d="M170 416 L320 390" class="sig" marker-end="url(#arr)"/>
+
+  <!-- PCM5102 -->
+  <rect x="580" y="300" width="150" height="52" rx="8" class="box box-purple"/>
+  <text x="655" y="320" text-anchor="middle" class="lbl">PCM5102</text>
+  <text x="655" y="338" text-anchor="middle" class="sub">IO4 · IO25 · IO26</text>
+  <line x1="540" y1="340" x2="578" y2="326" class="sig" marker-end="url(#arr)"/>
+  <text x="556" y="320" text-anchor="middle" class="sub">I2S</text>
+  <path d="M260 290 L260 310 L655 310 L655 300" stroke="#666" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <text x="450" y="306" text-anchor="middle" class="sub">5V audio</text>
+
+  <!-- TDA2050 A -->
+  <rect x="580" y="390" width="150" height="52" rx="8" class="box box-coral"/>
+  <text x="655" y="410" text-anchor="middle" class="lbl">TDA2050 A</text>
+  <text x="655" y="428" text-anchor="middle" class="sub">left ch · pot vol</text>
+  <line x1="655" y1="352" x2="655" y2="388" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="663" y="373" class="sub">OUTL+10µF</text>
+
+  <!-- TDA2050 B -->
+  <rect x="580" y="476" width="150" height="52" rx="8" class="box box-coral"/>
+  <text x="655" y="496" text-anchor="middle" class="lbl">TDA2050 B</text>
+  <text x="655" y="514" text-anchor="middle" class="sub">right ch · pot vol</text>
+  <line x1="655" y1="442" x2="655" y2="474" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="663" y="461" class="sub">OUTR+10µF</text>
+
+  <!-- Speakers -->
+  <rect x="580" y="562" width="64" height="44" rx="8" class="box box-gray"/>
+  <text x="612" y="580" text-anchor="middle" class="lbl">Spkr A</text>
+  <text x="612" y="596" text-anchor="middle" class="sub">10W 4Ω</text>
+  <rect x="666" y="562" width="64" height="44" rx="8" class="box box-gray"/>
+  <text x="698" y="580" text-anchor="middle" class="lbl">Spkr B</text>
+  <text x="698" y="596" text-anchor="middle" class="sub">10W 4Ω</text>
+  <line x1="630" y1="528" x2="612" y2="560" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="678" y1="528" x2="698" y2="560" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 12V → TDA2050 -->
+  <path d="M760 180 L800 180 L800 416 L732 416" class="rail" marker-end="url(#arrb)"/>
+  <text x="808" y="300" class="railLabel">12V</text>
+
+  <!-- Fan A — IO32 -->
+  <rect x="320" y="470" width="96" height="52" rx="8" class="box box-teal"/>
+  <text x="368" y="490" text-anchor="middle" class="lbl">Fan A</text>
+  <text x="368" y="508" text-anchor="middle" class="sub">IO32 IRLZ44N</text>
+
+  <!-- Fan B — IO27 -->
+  <rect x="430" y="470" width="96" height="52" rx="8" class="box box-teal"/>
+  <text x="478" y="490" text-anchor="middle" class="lbl">Fan B</text>
+  <text x="478" y="508" text-anchor="middle" class="sub">IO27 IRLZ44N</text>
+
+  <line x1="368" y1="410" x2="368" y2="468" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="478" y1="410" x2="478" y2="468" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M180 180 L180 496 L318 496" class="rail" marker-end="url(#arrb)"/>
+
+  <!-- Mister — IO33 -->
+  <rect x="320" y="562" width="120" height="52" rx="8" class="box box-teal"/>
+  <text x="380" y="582" text-anchor="middle" class="lbl">Mister</text>
+  <text x="380" y="600" text-anchor="middle" class="sub">IO33 IRLZ44N</text>
+  <path d="M430 410 L430 450 L380 450 L380 560" class="sig" marker-end="url(#arr)"/>
+  <path d="M760 180 L760 588 L442 588" class="rail" marker-end="url(#arrb)"/>
+  <text x="590" y="582" class="sub">24V</text>
+
+  <!-- DHT22 -->
+  <rect x="40" y="470" width="140" height="52" rx="8" class="box box-green"/>
+  <text x="110" y="490" text-anchor="middle" class="lbl">DHT22</text>
+  <text x="110" y="508" text-anchor="middle" class="sub">IO23 · 2m shielded</text>
+  <path d="M320 370 L200 370 L200 496 L182 496" class="sig" marker-end="url(#arr)"/>
+  <text x="235" y="446" class="sub">1-wire</text>
+
+  <!-- SD card -->
+  <rect x="40" y="556" width="140" height="52" rx="8" class="box box-gray"/>
+  <text x="110" y="576" text-anchor="middle" class="lbl">SD card</text>
+  <text x="110" y="594" text-anchor="middle" class="sub">SD_MMC 1-bit</text>
+  <path d="M320 385 L215 385 L215 582 L182 582" class="sig" marker-end="url(#arr)"/>
+
+  <!-- Ground note -->
+  <rect x="40" y="640" width="780" height="34" rx="8" fill="none" stroke="#cca000" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="430" y="661" text-anchor="middle" font-size="12" fill="#996600" font-family="system-ui, sans-serif">⚠ All GNDs common: 12V PSU · 24V PSU · ESP32 · MOSFETs · PCM5102 · TDA2050 A · TDA2050 B · USB shield</text>
+
+  <!-- Legend -->
+  <line x1="60" y1="706" x2="100" y2="706" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="108" y="710" font-size="11" fill="#666" font-family="system-ui, sans-serif">signal / control</text>
+  <line x1="260" y1="706" x2="300" y2="706" stroke="#aaa" stroke-width="1.5" stroke-dasharray="6 3" marker-end="url(#arrb)"/>
+  <text x="308" y="710" font-size="11" fill="#666" font-family="system-ui, sans-serif">power rail</text>
+</svg>
+
+<h2>Pin assignments — Rev 7</h2>
+
+<table>
+  <tr><th>Pin</th><th>Function</th><th>Protocol</th><th>Status</th><th>Notes</th></tr>
+  <tr><td>IO2</td><td>SD_MMC D0</td><td>SD_MMC</td><td class="done">✓ Working</td><td>1-bit mode — internal to extension board</td></tr>
+  <tr><td>IO4</td><td>PCM5102 DIN</td><td>I2S</td><td class="done">✓ Working</td><td>Moved from IO22 to avoid I2C conflict</td></tr>
+  <tr><td>IO5</td><td>Encoder SW</td><td>GPIO</td><td class="done">✓ Working</td><td>INPUT_PULLUP</td></tr>
+  <tr><td>IO14</td><td>SD_MMC CLK</td><td>SD_MMC</td><td class="done">✓ Working</td><td>1-bit mode — internal to extension board</td></tr>
+  <tr><td>IO15</td><td>SD_MMC CMD</td><td>SD_MMC</td><td class="done">✓ Working</td><td>1-bit mode — internal to extension board</td></tr>
+  <tr><td>IO18</td><td>Encoder CLK</td><td>GPIO</td><td class="done">✓ Working</td><td>INPUT_PULLUP</td></tr>
+  <tr><td>IO19</td><td>Encoder DT</td><td>GPIO</td><td class="done">✓ Working</td><td>INPUT_PULLUP — ISR on CHANGE</td></tr>
+  <tr><td>IO21</td><td>OLED SDA</td><td>I2C</td><td class="done">✓ Working</td><td>Wire.begin() default</td></tr>
+  <tr><td>IO22</td><td>OLED SCL</td><td>I2C</td><td class="done">✓ Working</td><td>Exclusive — no sharing</td></tr>
+  <tr><td>IO23</td><td>DHT22 data</td><td>1-wire</td><td>⬜ Pending</td><td>100Ω series + 1kΩ/2kΩ divider at ESP32; 4.7kΩ pull-up at sensor</td></tr>
+  <tr><td>IO25</td><td>PCM5102 LCK</td><td>I2S</td><td class="done">✓ Working</td><td>Left-right clock</td></tr>
+  <tr><td>IO26</td><td>PCM5102 BCK</td><td>I2S</td><td class="done">✓ Working</td><td>Bit clock</td></tr>
+  <tr><td>IO27</td><td>Fan 2 MOSFET gate</td><td>LEDC PWM</td><td class="done">✓ Working</td><td>Moved from IO13 — clean pin, no restrictions</td></tr>
+  <tr><td>IO32</td><td>Fan 1 MOSFET gate</td><td>LEDC PWM</td><td class="done">✓ Working</td><td>Clean bidirectional</td></tr>
+  <tr><td>IO33</td><td>Mister MOSFET gate</td><td>LEDC PWM</td><td>⬜ Pending</td><td>4.7kΩ board pull-up — pull-down resistor still required</td></tr>
+</table>
+
+<h2>Retired / do not use</h2>
+<table>
+  <tr><th>Pin</th><th>Reason</th></tr>
+  <tr><td><span class="warn">IO12</span></td><td><span class="warn">Boot strapping — flash voltage. Leave completely unconnected. Caused SD_MMC failure during development.</span></td></tr>
+  <tr><td><span class="warn">IO13</span></td><td><span class="warn">Strapping pin — caused repeated SD_MMC boot failures when used as LEDC PWM. Permanently retired. Leave floating or tie to GND only.</span></td></tr>
+</table>
+
+<h2>Available for future expansion</h2>
+<table>
+  <tr><th>Pin</th><th>Type</th><th>Notes</th></tr>
+  <tr><td class="avail">IO34</td><td>Input only</td><td>No pull-up/down, no output</td></tr>
+  <tr><td class="avail">IO35</td><td>Input only</td><td>No pull-up/down, no output</td></tr>
+  <tr><td class="avail">I36</td><td>Input only</td><td>No pull-up/down, no output</td></tr>
+  <tr><td class="avail">I39</td><td>Input only</td><td>No pull-up/down, no output</td></tr>
+  <tr><td>IO0</td><td>Bidirectional</td><td>Boot sensitive — avoid pulling LOW at power-on</td></tr>
+</table>
+
+<h2>Power architecture</h2>
+<table>
+  <tr><th>Rail</th><th>Source</th><th>Loads</th></tr>
+  <tr><td>12V</td><td>PSU via barrel jack + rocker switch</td><td>TDA2050 A, TDA2050 B, fan MOSFETs, both buck inputs</td></tr>
+  <tr><td>24V</td><td>Mister PSU via barrel jack 2</td><td>Mister MOSFET drain only</td></tr>
+  <tr><td>5V logic</td><td>Buck 1 (12V → 5V) → ESP32 VIN</td><td>ESP32, OLED, DHT22, encoder</td></tr>
+  <tr><td>5V audio</td><td>Buck 2 (12V → 5V) → PCM5102 VCC</td><td>PCM5102 dedicated clean rail</td></tr>
+  <tr><td>3.3V</td><td>ESP32 onboard AMS1117</td><td>ESP32 core, OLED logic, encoder, PCM5102 strap pins</td></tr>
+</table>
+
+<div class="note">
+  <strong>Current budget (12V rail):</strong> fans ×2 at 75% ~380mA · TDA2050 ×2 moderate volume ~800mA · buck converters ~330mA · <strong>total ~1.5A typical, ~2.3A worst case.</strong> 12V 5A supply recommended for overnight use.
+</div>
+
+<div class="note">
+  <strong>RC soft-start recommended for permanent build:</strong> 10Ω series resistor + 1000µF capacitor to GND on buck converter 5V output before ESP32 VIN. Slows power ramp to ~10ms, prevents boot instability from fast PSU rise time.
+</div>
+
+<h2>PCM5102 strap pins — all required</h2>
+<table>
+  <tr><th>Pin</th><th>Connection</th><th>Consequence if floating</th></tr>
+  <tr><td>XSMT</td><td>3.3V</td><td>Output muted or noisy</td></tr>
+  <tr><td>FMT</td><td>GND</td><td><span class="warn">Wrong data format — loud noise output</span></td></tr>
+  <tr><td>FLT</td><td>GND</td><td>Undefined filter behavior</td></tr>
+  <tr><td>DEMP</td><td>GND</td><td>Undefined de-emphasis</td></tr>
+</table>
+
+<h2>MOSFET wiring (per channel)</h2>
+<table>
+  <tr><th>Connection</th><th>Detail</th></tr>
+  <tr><td>Gate circuit</td><td>ESP32 GPIO → 100Ω → GATE node → 10kΩ → GND</td></tr>
+  <tr><td>Power path</td><td>12V/24V → load + → load – → DRAIN → SOURCE → GND</td></tr>
+  <tr><td>Flyback diode</td><td>Cathode → supply rail, Anode → DRAIN. Fans only — check mister type first.</td></tr>
+  <tr><td>Gate resistor value</td><td><span class="warn">100Ω = brown-black-brown. Not 100kΩ = brown-black-yellow. Verify with multimeter.</span></td></tr>
+</table>
+
+<h2>DHT22 termination</h2>
+<table>
+  <tr><th>Location</th><th>Component</th><th>Value</th><th>Purpose</th></tr>
+  <tr><td>Sensor end</td><td>Pull-up</td><td>4.7kΩ DATA to VCC</td><td>1-wire protocol; at sensor for long-run reliability</td></tr>
+  <tr><td>ESP32 end</td><td>Series resistor</td><td>100Ω in DATA line</td><td>Limits reflections</td></tr>
+  <tr><td>ESP32 end</td><td>Divider R1</td><td>1kΩ DATA to IO23</td><td>Level shift 5V → 3.3V</td></tr>
+  <tr><td>ESP32 end</td><td>Divider R2</td><td>2kΩ IO23 to GND</td><td>Divider lower leg</td></tr>
+  <tr><td>Cable shield</td><td>Ground</td><td>ESP32 end only</td><td>Prevents ground loop</td></tr>
+</table>
+
+<h2>Lessons learned</h2>
+<div class="learned">
+  <strong>IO13</strong> — strapping pin. Never use for driven outputs. Caused repeated SD_MMC boot failures. Permanently retired.<br><br>
+  <strong>IO12</strong> — leave completely unconnected. Caused SD_MMC failure when wired.<br><br>
+  <strong>PCM5102 strap pins</strong> — all four must be tied. Floating FMT causes loud noise. Floating XSMT causes silence or noise.<br><br>
+  <strong>Gate resistor color codes</strong> — 100Ω (brown-black-brown) vs 100kΩ (brown-black-yellow). Verify with multimeter before installing.<br><br>
+  <strong>Star ground</strong> — buck input and output GND on separate wires. USB shield must tie to common ground.<br><br>
+  <strong>SD card slot</strong> — spring-loaded slot is fussy on SunFounder board. Card ejection caused multiple apparent failures.<br><br>
+  <strong>WAV header</strong> — use <code>findWAVDataOffset()</code> parser rather than fixed 44-byte offset.<br><br>
+  <strong>IO22</strong> — exclusively I2C SCL. Do not share with any other peripheral.<br><br>
+  <strong>5V audio rail</strong> — PCM5102 on dedicated buck converter 5V rail reduces noise and ESP32 regulator load.
+</div>
+
+</body>
+</html>
+EOF
