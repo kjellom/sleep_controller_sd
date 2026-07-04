@@ -13,9 +13,10 @@
 //    Audio volume controlled by TDA2050 onboard potentiometers
 //
 //  ENCODER BEHAVIOUR:
-//    Turn knob         → fan speed 0–100%
-//    Short press       → toggle both fans on/off
-//    Long press >600ms → toggle audio play/pause
+//    Turn knob            → fan speed 0–100%
+//    Short press          → toggle both fans on/off
+//    Long press >600ms    → toggle audio play/pause
+//    Triple-click (<400ms gap) → toggle WiFi on/off
 //
 //  OLED:
 //    Full brightness on any knob turn or button press.
@@ -58,9 +59,13 @@
 //    DEMP → GND   (de-emphasis off)
 //
 //  LIBRARIES REQUIRED (Arduino Library Manager):
-//    • ESP8266Audio  by Earle F. Philhower III
+//    • ESP8266Audio        by Earle F. Philhower III
 //    • Adafruit SSD1306
 //    • Adafruit GFX Library
+//    • WiFiManager         by tzapu
+//    • ESPAsyncWebServer   by ESP Async WebServer
+//    • AsyncTCP            by dvarrel
+//    (ArduinoOTA and ESPmDNS are included with ESP32 Arduino core)
 // ============================================================
 
 #include <Arduino.h>
@@ -69,6 +74,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "AudioOutputI2S.h"
+#include "wifi_ota.h"
 
 // ── Pin assignments ──────────────────────────────────────────
 #define ENC_CLK     18
@@ -118,11 +124,15 @@ unsigned long lastActivityTime = 0;
 bool          isDimmed         = false;
 
 // ── Button timing ────────────────────────────────────────────
-#define DEBOUNCE_MS    50
-#define LONG_PRESS_MS  600
+#define DEBOUNCE_MS             50
+#define LONG_PRESS_MS          600
+#define TRIPLE_CLICK_WINDOW_MS 400
 unsigned long btnPressTime    = 0;
 unsigned long btnDebounceTime = 0;
 bool          btnHeld         = false;
+unsigned long lastReleaseTime = 0;
+int           clickCount      = 0;
+bool          tripleClickFired = false;
 
 // ── Display refresh ───────────────────────────────────────────
 unsigned long lastDisplayTime = 0;
@@ -174,12 +184,14 @@ void updateDisplay() {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
 
-  // Row 0: fan states + audio indicator
+  // Row 0: fan states + WiFi indicator + audio indicator
   display.setCursor(0, 0);
   display.print("F1:");
   display.print(fan1On ? "ON " : "OFF");
   display.print(" F2:");
   display.print(fan2On ? "ON " : "OFF");
+  display.setCursor(84, 0);
+  display.print(wifiActive ? "W" : " ");
   display.setCursor(108, 0);
   display.print(audioPlaying ? " >" : "||");
 
@@ -202,9 +214,13 @@ void updateDisplay() {
     display.drawPixel(x, BAR_Y + BAR_H + 1, SSD1306_WHITE);
   }
 
-  // Row 2: hint text
+  // Row 2: WiFi IP when connected, hint text otherwise
   display.setCursor(0, 24);
-  display.print("short=fans  long=audio");
+  if (wifiActive) {
+    display.print(wifiIP.c_str());
+  } else {
+    display.print("short=fans  long=audio");
+  }
 
   display.display();
 }
@@ -370,6 +386,17 @@ void setup() {
   lastActivityTime = millis();
 
   applyAllFans();
+
+  // WiFi init — show status on OLED first since autoConnect() may block
+  if (displayOK) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 8);
+    display.print("WiFi connecting...");
+    display.display();
+  }
+  wifiInit();
   updateDisplay();
 
   // Launch audio task on Core 0, priority 2
@@ -395,22 +422,48 @@ void loop() {
   if (swState == LOW && !btnHeld) {
     unsigned long now = millis();
     if (now - btnDebounceTime > DEBOUNCE_MS) {
-      btnHeld        = true;
-      btnPressTime   = now;
+      btnHeld         = true;
+      btnPressTime    = now;
       btnDebounceTime = now;
       registerActivity();
+
+      // Triple-click detection: count presses within TRIPLE_CLICK_WINDOW_MS
+      if (now - lastReleaseTime < TRIPLE_CLICK_WINDOW_MS) {
+        clickCount++;
+      } else {
+        clickCount = 1;
+      }
+      if (clickCount >= 3) {
+        clickCount       = 0;
+        tripleClickFired = true;
+        if (displayOK) {
+          display.clearDisplay();
+          display.setTextSize(1);
+          display.setTextColor(SSD1306_WHITE);
+          display.setCursor(0, 8);
+          display.print(wifiActive ? "WiFi off..." : "WiFi setup...");
+          display.display();
+        }
+        wifiToggle();   // blocking if enabling (audio continues on Core 0)
+        updateDisplay();
+      }
     }
   }
 
   if (swState == HIGH && btnHeld) {
     unsigned long duration = millis() - btnPressTime;
-    btnHeld = false;
+    btnHeld         = false;
+    lastReleaseTime = millis();
 
-    if (duration >= LONG_PRESS_MS) {
+    if (tripleClickFired) {
+      // Action already taken on press-start; suppress normal press action
+      tripleClickFired = false;
+    } else if (duration >= LONG_PRESS_MS) {
       // Long press → toggle audio play/pause
       xSemaphoreTake(stateMutex, portMAX_DELAY);
       audioPlaying = !audioPlaying;
       xSemaphoreGive(stateMutex);
+      clickCount = 0;
       Serial.printf("Audio %s\n", audioPlaying ? "playing" : "paused");
     } else {
       // Short press → toggle both fans on/off
@@ -444,4 +497,7 @@ void loop() {
     lastDisplayTime = millis();
     updateDisplay();
   }
+
+  // ── WiFi / ArduinoOTA ─────────────────────────────────────────
+  wifiLoop();
 }
